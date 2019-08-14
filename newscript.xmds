@@ -1,0 +1,128 @@
+<simulation xmds-version="2">
+  <name> </name>
+
+  <author> </author>
+
+  <description>
+    </description>
+
+  <features>
+    <auto_vectorise/>
+    <benchmark/>
+    <bing/>
+    <fftw plan="exhaustive"/>
+    <openmp threads="8"/>
+    <globals><![CDATA[
+	const real Natoms = 3500000.000000;
+	const real Uint = 0.014715;
+	const real mu0 = 90.535510;
+	]]></globals>
+
+  </features>
+
+  <geometry>
+    <propagation_dimension>t</propagation_dimension>
+    <transverse_dimensions>
+      <dimension name="x" domain="(-20.184, 20.184)" lattice="1646"/>
+      <dimension name="y" domain="(-20.184, 20.184)" lattice="1646"/>
+    </transverse_dimensions>
+
+  </geometry>
+
+  <vector name="potential" dimensions="x z" type="real">
+    <components> V1 </components>
+    <initialisation><![CDATA[
+        V1 = 0.5*x*x/AR/AR + 0.5*z*z;
+      ]]></initialisation>
+
+  </vector>
+
+  <vector name="wavefunction" dimensions="x z" type="complex">
+    <components> psi </components>
+    <!-- <initialisation kind="hdf5">
+      <filename> psi_init.h5 </filename>
+    </initialisation> -->
+    <initialisation>
+      <dependencies>potential</dependencies><![CDATA[
+        psi = (mu0 - V1)/Uint;
+        if (psi >= 0) psi = sqrt(psi); else psi = 0.0;
+        ]]></initialisation>
+
+  </vector>
+
+  <computed_vector name="normalization" dimensions="" type="real">
+    <components> Norm </components>
+    <evaluation>
+      <dependencies>wavefunction</dependencies><![CDATA[
+        // Calculate the current normalization of the wave function.
+        Norm = mod2(psi);
+      ]]></evaluation>
+
+  </computed_vector>
+
+  <computed_vector name="kin_energy" dimensions="" type="real">
+    <components>
+            Kcalc
+        </components>
+    <evaluation>
+      <dependencies basis="kx kz">wavefunction</dependencies><![CDATA[
+        Kcalc = 0.5*(kx*kx + kz*kz)*mod2(psi);
+      ]]></evaluation>
+
+  </computed_vector>
+
+  <computed_vector name="pot_energy" dimensions="" type="real">
+    <components>
+            Vcalc
+        </components>
+    <evaluation>
+      <dependencies basis="x z">wavefunction potential</dependencies><![CDATA[
+      Vcalc = (V1 + 0.5*Uint*mod2(psi))*mod2(psi);
+      ]]></evaluation>
+
+  </computed_vector>
+
+  <sequence>
+    <integrate algorithm="ARK45" interval="2.2" steps="2200" tolerance="1e-8">
+      <samples>220 220</samples>
+      <filters where="step end">
+        <filter>
+          <dependencies>wavefunction normalization</dependencies><![CDATA[
+            // Correct normalization of the wavefunction
+            psi *= sqrt(Natoms/Norm);
+          ]]></filter>
+      </filters>
+      <operators>
+        <operator kind="ip">
+          <operator_names>Tx</operator_names><![CDATA[
+            Tx = -0.5*kx*kx;
+          ]]></operator>
+        <operator kind="ip">
+          <operator_names>Tz</operator_names><![CDATA[
+              Tz = -0.5*kz*kz;
+            ]]></operator>
+        <integration_vectors>wavefunction</integration_vectors>
+        <dependencies>potential</dependencies><![CDATA[
+          dpsi_dt = Tx[psi] + Tz[psi] - (V1 + Uint*mod2(psi))*psi;
+        ]]></operators>
+    </integrate>
+
+  </sequence>
+
+  <output filename="gpe2d_T0_results_3.5M_AR_10.0">
+    <sampling_group basis="x z" initial_sample="yes">
+      <moments>psiR psiI</moments>
+      <dependencies>wavefunction</dependencies><![CDATA[
+        _SAMPLE_COMPLEX(psi);
+        ]]></sampling_group>
+    <sampling_group initial_sample="yes">
+      <moments>norm energy</moments>
+      <dependencies>normalization kin_energy pot_energy</dependencies><![CDATA[
+          norm = Norm;
+          energy = Kcalc + Vcalc;
+        ]]></sampling_group>
+
+  </output>
+
+</simulation>
+

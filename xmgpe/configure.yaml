@@ -1,0 +1,41 @@
+# @Author:             Carmelo Mordini <carmelo>
+# @Date:               07-2019
+
+name:                  gpe
+author:                CM
+description:           "something and something"
+
+mass:                  23  # Na
+scatt_len:             52  # |1, -1>
+Natoms:                3.5e6
+
+time_evolution:        real  # real, imaginary
+
+geometry:
+  - name:              x
+    trap_freq:         8.3
+    domain:            x1.5
+    lattice:           x0.33
+  - name:              y
+    trap_freq:         8.3
+    domain:            x1.5
+    lattice:           x0.33
+  # - name:              z
+  #   trap_freq:         83.0
+  #   lattice:           1024
+  #   domain:            200
+
+transverse_trap_freq: 500
+
+# runtime
+runtime:               2.2
+timestep:              1e-3
+sample_timestep:       0.01
+
+
+features:
+    auto_vectorise:    true
+    benchmark:         true
+    bing:              true
+    fftw:              exhaustive
+    openmp:            12
