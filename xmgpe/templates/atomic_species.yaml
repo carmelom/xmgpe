@@ -1,0 +1,6 @@
+# mass in units of atomic_mass
+# a_scatt in units of the Bohr radius
+
+sodium:
+    mass: 23
+    a_scatt: 52

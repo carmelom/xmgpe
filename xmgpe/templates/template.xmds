@@ -1,0 +1,95 @@
+<simulation xmds-version="2">
+    <name>gpe_template</name>
+
+    <author>cm</author>
+
+    <description></description>
+
+    <features>
+        <!-- <halt_non_finite/> -->
+        <auto_vectorise/>
+        <benchmark/>
+        <bing/>
+        <fftw plan="measure"/>
+        <openmp threads="8"/>
+        <globals>
+            <![CDATA[
+        	const real N = 1e5;
+        	const real g = 0.01;
+        	]]>
+        </globals>
+
+    </features>
+
+    <geometry>
+        <propagation_dimension>t</propagation_dimension>
+        <transverse_dimensions>
+            <dimension name="x" domain="(-20, 20)" lattice="2048"/>
+        </transverse_dimensions>
+
+    </geometry>
+
+    <vector name="wavefunction" dimensions="x" type="complex">
+        <components>psi</components>
+        <initialisation>
+            <![CDATA[psi = exp(-x*x / 2.0 / 9.0);]]>
+        </initialisation>
+        <!-- <initialisation kind="hdf5"> <filename>data.h5</filename> </initialisation> -->
+
+    </vector>
+
+    <vector name="potential" dimensions="x" type="real">
+        <components>V1</components>
+        <initialisation>
+            <![CDATA[V1 = 0.5*x*x;]]>
+        </initialisation>
+
+    </vector>
+
+    <computed_vector name="normalization" dimensions="" type="real">
+        <components>
+            Norm
+        </components>
+        <evaluation>
+            <dependencies>wavefunction</dependencies>
+            <![CDATA[Norm = mod2(psi);]]>
+        </evaluation>
+
+    </computed_vector>
+
+    <sequence>
+        <integrate algorithm="ARK45" interval="1" steps="1000" tolerance="1e-06">
+            <samples>100</samples>
+            <filters where="step end">
+                <filter>
+                    <dependencies>wavefunction normalization</dependencies>
+                    <![CDATA[psi *= sqrt(N/Norm);]]>
+                </filter>
+            </filters>
+            <operators>
+                <operator kind="ip">
+                    <operator_names>Tx</operator_names>
+                    <![CDATA[Tx = -0.5*kx*kx;]]>
+                </operator>
+                <integration_vectors>wavefunction</integration_vectors>
+                <dependencies>potential</dependencies>
+                <![CDATA[
+                         dpsi_dt = Tx[psi] - (V1 + g*mod2(psi))*psi;
+                         ]]>
+            </operators>
+        </integrate>
+        <breakpoint filename="gpe_output_final" format="hdf5">
+            <dependencies basis="x">wavefunction</dependencies>
+        </breakpoint>
+    </sequence>
+
+    <output filename="gpe_results">
+        <sampling_group basis="x" initial_sample="yes">
+            <moments>psiR psiI</moments>
+            <dependencies>wavefunction</dependencies>
+            <![CDATA[_SAMPLE_COMPLEX(psi);]]>
+        </sampling_group>
+
+    </output>
+
+</simulation>
