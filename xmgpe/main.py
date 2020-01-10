@@ -6,64 +6,118 @@
 """Module docstring
 
 """
+from pathlib import Path
 from lxml import etree
-from math import sqrt
-from . import writer
-from .thomasfermi import pi, m_u, hbar, abohr
+from . import writer, physics
+
 from ruamel.yaml import YAML
 yaml = YAML(typ='safe')
 
+dir = Path(__file__).parent
 
-solid_angle_d = {1: 2, 2: 2 * pi, 3: 4 * pi}
-
-
-def chem_pot_d(N, Uint, ndim):
-    return 0.5*(ndim*(ndim+2)/2/solid_angle_d[ndim] * Uint * N)**(2./(ndim+2))
+# with open(conf_filename) as f:
+#     conf = yaml.load(f)
 
 
-def write_simulation(filename=None,):
-    with open('xmgpe/configure.yaml') as f:
-        conf = yaml.load(f)
-    parser = etree.XMLParser(strip_cdata=False, remove_blank_text=True)
-    with open('xmgpe/template.xmds', "r") as source:
-        main = etree.parse(source, parser=parser)
+def write_simulation(natoms, trap_freqs, ndims,
+                     dx=0.33, box_size=2,
+                     name='groundstate', dry_run=False,):
+    """Writes a xmds GPE simulation to compute the ground state of BEC
 
-    # read physical parameters
-    Natoms = conf['Natoms']
-    mass = conf['mass'] * m_u
-    scatt_len = conf['scatt_len'] * abohr
-    geometry_conf = conf['geometry']
-    ndim = len(geometry_conf)
-    dim_names = [dim['name'] for dim in geometry_conf]
-    omega_ho = 2 * pi * geometry_conf[-1]['trap_freq']
-    print(f"in main: omega ho = {omega_ho / 2 / pi}")
+    Params:
+        natoms
+        trap_freqs
+        ndims
+    """
+    template = dir / 'templates/template.xmds'
+    main = writer.read_xmds(template)
+    # for tag in ['name', 'author', 'description']:
+    #     main.find(tag).text = conf[tag]
+    main.find('name').text = f"gpe_{name}"
 
-    a_ho = sqrt(hbar / mass / omega_ho)
-    Uint = 4 * pi * scatt_len / a_ho
-    if ndim < 3:
-        omega_tr = 2 * pi * conf['transverse_trap_freq']
-        a_tr = sqrt(hbar / mass / omega_tr)
-        Uint *= (a_ho / sqrt(2 * pi) / a_tr)**(3 - ndim)
-    mu0 = chem_pot_d(Natoms, Uint, ndim)
+    mu, a_scatt, xi, radii, msg = physics.gpe_physics(natoms, trap_freqs, ndims)
+    g = f"4*M_PI*a_scatt"
+    if dry_run:
+        print("--- xmgpe dry-run ---")
+        print(msg)
+        return
+
+    print(msg)
+
+    dim_names = ['x', 'y', 'z'][:ndims]
+    trap_freqs = trap_freqs[:ndims]
 
     # write globals
     features = main.find('features')
     globals = features.find('globals')
-    globals.text = writer.globals_cdata(Natoms=Natoms, Uint=Uint, mu0=mu0)
+    globs = dict(N=natoms, a_scatt=a_scatt, g=g)
+    globals.text = writer.globals_cdata(**globs)
 
     # write geometry
-    geom = writer.geometry(geometry_conf, mu0=mu0)
+    dimensions = []
+    dx = xi * dx
+    for d, r in zip(dim_names, radii):
+        L = int(round(r * box_size))
+        domain = (-L, L)
+        lattice = int(round(2 * L / dx))
+        dim = writer.dimension(d, domain, lattice)
+        dimensions.append(dim)
+
+    geom = writer.geometry(dimensions)
     main.getroot().replace(main.find("geometry"), geom)
 
-    # write vectors
-    vectors = []
-    vpot = writer.potential(geometry_conf)
-    writer.pretty_print(vpot)
+    # wavefunction
+    wavef = main.xpath("//vector[@name='wavefunction']")[0]
+    wavef.attrib['dimensions'] = " ".join(dim_names)
+    psi = writer.gaussian_wavefunction(dim_names, radii, amp=1)
+    wavef.find('initialisation').text = etree.CDATA(f"psi = {psi};")
 
-    wavef = writer.wavefunction(geometry_conf, initialisation='thomasfermi')
-    writer.pretty_print(wavef)
+    # potential
+    vpot = main.xpath("//vector[@name='potential']")[0]
+    vpot.attrib['dimensions'] = " ".join(dim_names)
+    v1 = writer.harmonic_potential(dim_names, trap_freqs)
+    vpot.find('initialisation').text = etree.CDATA(f"V1 = {v1};")
+
+    sequence = main.find('sequence')
+    integrate = sequence.find('integrate')
+
+    # set integration time
+    interval = 1
+    dt = 0.5 * dx**2
+    steps = interval / dt
+    steps = int(round(steps / 100) * 100)
+    integrate.attrib['interval'] = str(interval)
+    integrate.attrib['steps'] = str(steps)
+
+    operators = integrate.find('operators')
+    for child in operators:
+        if child.tag == 'operator':
+            operators.remove(child)
+    tx_list = []
+    for j, dim in enumerate(dim_names):
+        op = writer.ip_operator(dim, evolution='imaginary')
+        operators.insert(j, op)
+        tx_list.append(f"T{dim}[psi]")
+    # sign = 'i*' if conf['time_evolution'] == 'real' else ''
+    sign = ''
+    eqn = f"dpsi_dt = {' + '.join(tx_list)} - {sign}(V1 + g*mod2(psi))*psi;"
+    print(eqn)
+    integrate.replace(integrate.find("operators"), operators)
+    sep = '\n\t\t'
+    operators.find('dependencies').tail = etree.CDATA(sep + eqn + sep)
+
+    # explicit output names
+    breakpoint = sequence.find('breakpoint')
+    breakpoint.attrib['filename'] = f"gpe_{name}_final"
+    breakpoint.find('dependencies').attrib['basis'] = " ".join(dim_names)
+
+    main.find('output').attrib['filename'] = f"gpe_{name}_results"
+
+    # fix geometry in first sampling group
+    samp0 = main.xpath("//output/sampling_group")[0]
+    samp0.attrib['basis'] = " ".join(dim_names)
 
     # write to file
-    writer.indent(main.getroot(), level=0)
-    # writer.pretty_print(main)
-    main.write('newscript.xmds')
+    scriptname = f"{name}.xmds"
+    writer.write_xmds(main, scriptname)
+    print('Done')
