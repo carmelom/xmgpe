@@ -1,7 +1,7 @@
 <simulation xmds-version="2">
-    <name>gpe_template</name>
+    <name>{{conf.name}}</name>
 
-    <author>cm</author>
+    <author>CM</author>
 
     <description></description>
 
@@ -14,34 +14,34 @@
         <openmp threads="8"/>
         <globals>
             <![CDATA[
-        	const real N = 1e5;
-        	const real g = 0.01;
+        	{% for key, value in conf.globals.items() %}
+            const real {{key}} = {{value}};
+            {% endfor %}
         	]]>
         </globals>
-
     </features>
 
     <geometry>
         <propagation_dimension>t</propagation_dimension>
         <transverse_dimensions>
-            <dimension name="x" domain="(-20, 20)" lattice="2048"/>
+            {% for dim in conf.geometry %}
+            <dimension name="{{dim.name}}" domain="{{dim.domain}}" lattice="{{dim.lattice}}"/>
+            {% endfor %}
         </transverse_dimensions>
-
     </geometry>
 
-    <vector name="wavefunction" dimensions="x" type="complex">
+    <vector name="wavefunction" dimensions="{{conf.dimensions}}" type="complex">
         <components>psi</components>
         <initialisation>
-            <![CDATA[psi = exp(-x*x / 2.0 / 9.0);]]>
+            <![CDATA[psi = {{conf.gaussian_wavefunction}};]]>
         </initialisation>
         <!-- <initialisation kind="hdf5"> <filename>data.h5</filename> </initialisation> -->
-
     </vector>
 
-    <vector name="potential" dimensions="x" type="real">
+    <vector name="potential" dimensions="{{conf.dimensions}}" type="real">
         <components>V1</components>
         <initialisation>
-            <![CDATA[V1 = 0.5*x*x;]]>
+            <![CDATA[V1 = {{conf.harmonic_potential}};]]>
         </initialisation>
 
     </vector>
@@ -58,7 +58,7 @@
     </computed_vector>
 
     <sequence>
-        <integrate algorithm="ARK45" interval="1" steps="1000" tolerance="1e-06">
+        <integrate algorithm="ARK45" interval="{{conf.integrate_interval}}" steps="{{conf.integrate_steps}}" tolerance="1e-06">
             <samples>100</samples>
             <filters where="step end">
                 <filter>
@@ -67,29 +67,30 @@
                 </filter>
             </filters>
             <operators>
+                {% for dim in conf.geometry %}
                 <operator kind="ip">
-                    <operator_names>Tx</operator_names>
-                    <![CDATA[Tx = -0.5*kx*kx;]]>
+                    <operator_names>T{{dim.name}}</operator_names>
+                    <![CDATA[T{{dim.name}} = -0.5*k{{dim.name}}*k{{dim.name}};]]>
                 </operator>
+                {% endfor %}
                 <integration_vectors>wavefunction</integration_vectors>
                 <dependencies>potential</dependencies>
                 <![CDATA[
-                         dpsi_dt = Tx[psi] - (V1 + g*mod2(psi))*psi;
+                         {{conf.gpe}}
                          ]]>
             </operators>
         </integrate>
-        <breakpoint filename="gpe_output_final" format="hdf5">
-            <dependencies basis="x">wavefunction</dependencies>
+        <breakpoint filename="{{conf.name}}_final" format="hdf5">
+            <dependencies basis="{{conf.dimensions}}">wavefunction</dependencies>
         </breakpoint>
     </sequence>
 
-    <output filename="gpe_results">
-        <sampling_group basis="x" initial_sample="yes">
+    <output filename="{{conf.name}}_results">
+        <sampling_group basis="{{conf.dimensions}}" initial_sample="yes">
             <moments>psiR psiI</moments>
             <dependencies>wavefunction</dependencies>
             <![CDATA[_SAMPLE_COMPLEX(psi);]]>
         </sampling_group>
-
     </output>
 
 </simulation>

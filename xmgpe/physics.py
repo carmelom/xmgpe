@@ -25,28 +25,6 @@ def chem_pot_d(N, g, ndims=3):
     return 0.5 * (ndims * (ndims + 2) / solid_angle_d[ndims] * g * N)**(2. / (ndims + 2))
 
 
-def gpe_dimension(trap_freq, domain, lattice, transform=None, mu0=1, f_ho=1):
-    if not isinstance(domain, tuple):
-        if isinstance(domain, (int, float)):
-            right = domain
-        elif domain.startswith("x"):
-            mult = float(domain[1:])
-            print(f"domain len: {mult} Rtf")
-            Rtf = sqrt(2 * mu0) * f_ho / trap_freq
-            right = mult * Rtf
-        if transform is not None and transform != "dft":
-            left = 0
-        else:
-            left = -right
-        domain = (left, right)
-    if isinstance(lattice, str) and lattice.startswith("x"):
-        mult = float(lattice[1:])
-        print(f"lattice spacing: {mult} healing length")
-        healing_length = 1 / sqrt(2 * mu0)
-        dx = mult * healing_length
-        lattice = int((right - left) / dx)
-
-
 def gpe_physics(natoms, trap_freqs, ndims, mass=23, a_scatt=52):
     assert len(trap_freqs) == 3
     assert ndims <= 3
